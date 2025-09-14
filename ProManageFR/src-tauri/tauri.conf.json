@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ProManage",
+  "version": "1.0.0",
+  "identifier": "com.promanage.app",
+  "build": {
+    "beforeDevCommand": "npm run dev:both",
+    "devUrl": "http://localhost:19006",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ProManage",
+        "width": 1280,
+        "height": 800,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true
+  }
+}

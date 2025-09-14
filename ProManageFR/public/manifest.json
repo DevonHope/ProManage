@@ -1,0 +1,15 @@
+{
+  "short_name": "ProManage",
+  "name": "ProManage Portal",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1976d2",
+  "background_color": "#ffffff"
+}
