@@ -5,7 +5,7 @@
   "identifier": "com.promanage.app",
   "build": {
     "beforeDevCommand": "npm run dev:both",
-    "devUrl": "http://localhost:19006",
+  "devUrl": "http://127.0.0.1:19006",
     "frontendDist": "../dist"
   },
   "app": {

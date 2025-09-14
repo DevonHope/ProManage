@@ -2,6 +2,25 @@
 
 A cross‑platform project manager for creative folders on NAS or Git. Runs as a web/desktop app (Expo + Tauri) with a Next.js backend.
 
+## Status
+
+Stable for day‑to‑day development and testing on Windows:
+- Tauri desktop window opens and loads the Expo frontend.
+- Directory picker works (Tauri native); web fallback works on Chromium.
+- Backend APIs (auth, projects, refresh, upload, settings) function as expected.
+
+## Quick start (Desktop)
+
+Run the desktop app with Tauri (starts backend and frontend):
+
+```cmd
+cd ProManage\ProManageFR
+npm install
+npm run tauri:dev
+```
+
+If you see “connection refused,” confirm ports 3000 (backend) and 19006 (frontend) are free and that your firewall allows local loopback. On Windows, prefer 127.0.0.1 hosts (already set).
+
 ## Stack
 
 - Frontend: Expo (SDK 54), Expo Router 6, React 19, React Native Paper
@@ -51,6 +70,7 @@ npm run tauri:dev
 
 - Starts backend (Next.js) on port 3000 and Expo Web on port 19006.
 - Tauri opens a desktop window pointing to the Expo dev server.
+	- If you see “connection refused”, ensure Expo is running on 127.0.0.1 and not blocked by firewall.
 
 Alternative (Web only):
 
@@ -69,6 +89,8 @@ Open http://localhost:19006.
 ## Environment
 
 - Frontend: `EXPO_PUBLIC_API_BASE` (defaults to `http://localhost:3000`)
+- For firewall/loopback edge cases on Windows, prefer 127.0.0.1:
+	- `ProManageFR/.env`: `EXPO_PUBLIC_API_BASE=http://127.0.0.1:3000`
 - Backend: defaults to port `3000`
 
 ## Build (Desktop)
@@ -102,6 +124,7 @@ npm run tauri:build
 	- Verify: `where link` and `rustc -vV` shows `x86_64-pc-windows-msvc`
 - Expo dev port busy (19006): change the port or stop existing Expo instances.
 - Plugin version mismatch: keep `tauri-plugin-dialog` crate and `@tauri-apps/plugin-dialog` on the same 2.x minor (e.g. 2.4).
+- Expo/Metro ENOENT watch errors under `src-tauri/target`: we exclude those paths in `ProManageFR/metro.config.js`. If you still see it, stop all processes, delete `ProManageFR/.expo` and restart `npm run tauri:dev`.
 
 ---
 
