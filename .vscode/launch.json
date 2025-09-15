@@ -1,0 +1,80 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: Next.js (dev)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "autoAttachChildProcesses": true,
+      "env": {
+        "NODE_OPTIONS": "--enable-source-maps"
+      }
+    },
+    {
+      "name": "Frontend: Expo Web (19006)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/ProManageFR",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web", "--", "--port", "19006"],
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "env": {
+        "EXPO_NO_OPEN": "1",
+        "BROWSER": "none"
+      }
+    },
+    {
+      "name": "Chrome: http://127.0.0.1:19006",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:19006",
+      "webRoot": "${workspaceFolder}/ProManageFR",
+      "skipFiles": [
+        "**/node_modules/**",
+        "**/webpack/**",
+        "**/vendor/**"
+      ]
+    },
+    {
+      "name": "Tauri: Desktop (dev)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/ProManageFR",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "tauri:dev"],
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Dev: Backend + Expo Web + Chrome",
+      "configurations": [
+        "Backend: Next.js (dev)",
+        "Frontend: Expo Web (19006)",
+        "Chrome: http://127.0.0.1:19006"
+      ]
+    },
+    {
+      "name": "Dev: Desktop (Tauri)",
+      "configurations": [
+        "Tauri: Desktop (dev)"
+      ]
+    }
+  ]
+}

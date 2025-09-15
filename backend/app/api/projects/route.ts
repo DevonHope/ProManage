@@ -5,13 +5,16 @@ import fs from 'fs/promises';
 import path from 'path';
 
 function parseDescFile(text: string): { main?: string; entries: Record<string, string> } {
+  // Strip UTF-8 BOM if present
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const map: Record<string, string> = {};
   let current: string | null = null;
   for (const line of lines) {
-    const m = line.match(/^\s*([^:]+):\s*(.*)$/);
+    const clean = line.replace(/^\uFEFF/, '');
+    const m = clean.match(/^\s*([^:]+):\s*(.*)$/);
     if (m) {
-      current = m[1].trim().toLowerCase();
+      current = m[1].trim().toLowerCase().replace(/^\uFEFF/, '');
       map[current] = m[2] ?? '';
     } else if (current) {
       map[current] += (map[current] ? '\n' : '') + line;

@@ -17,6 +17,7 @@ export interface ProjectRecord {
   storageLocation: string;
   connectionType?: 'nas' | 'git';
   connectionPath?: string;
+  connectionProvider?: 'github' | 'gitlab' | 'gitea';
   organization?: string;
 }
 
@@ -68,6 +69,23 @@ export interface UserSettings {
   connectionUsername?: string;
   // Store encrypted
   connectionPasswordEnc?: string;
+  // GitHub account linkage (stored encrypted where applicable)
+  githubUsername?: string;
+  githubPasswordEnc?: string; // for demo; prefer tokens in production
+  githubTokenEnc?: string; // store PAT securely
+  githubConnected?: boolean;
+  // Gitea
+  giteaBaseUrl?: string;
+  giteaUsername?: string;
+  giteaPasswordEnc?: string;
+  giteaTokenEnc?: string;
+  giteaConnected?: boolean;
+  // GitLab
+  gitlabBaseUrl?: string; // default https://gitlab.com
+  gitlabUsername?: string;
+  gitlabPasswordEnc?: string;
+  gitlabTokenEnc?: string;
+  gitlabConnected?: boolean;
 }
 
 export async function getUserSettings(userId: string): Promise<UserSettings | undefined> {

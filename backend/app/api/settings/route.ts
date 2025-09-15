@@ -29,7 +29,16 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
   const s = await getUserSettings(userId);
   // Don’t return the raw encrypted password; we omit it.
-  const redacted = s ? { ...s, connectionPasswordEnc: undefined } : undefined;
+  const redacted = s ? {
+    ...s,
+    connectionPasswordEnc: undefined,
+    githubPasswordEnc: undefined,
+  githubTokenEnc: undefined,
+    giteaPasswordEnc: undefined,
+    giteaTokenEnc: undefined,
+    gitlabPasswordEnc: undefined,
+    gitlabTokenEnc: undefined,
+  } : undefined;
   return NextResponse.json({ settings: redacted }, { headers });
 }
 
@@ -39,14 +48,29 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers });
   try {
     const body = await req.json();
-    const incoming: Partial<UserSettings> & { connectionPassword?: string } = body || {};
-    const toSave: UserSettings = {
-      defaultConnectionType: incoming.defaultConnectionType,
-      connectionUsername: incoming.connectionUsername,
-      connectionPasswordEnc: incoming.connectionPassword ? encryptString(incoming.connectionPassword) : undefined,
-    };
+    const incoming: Partial<UserSettings> & { connectionPassword?: string; githubToken?: string } = body || {};
+    const existing = (await getUserSettings(userId)) || {};
+    const toSave: UserSettings = { ...existing };
+    if (typeof incoming.defaultConnectionType !== 'undefined') toSave.defaultConnectionType = incoming.defaultConnectionType;
+    if (typeof incoming.connectionUsername !== 'undefined') toSave.connectionUsername = incoming.connectionUsername;
+    if (typeof incoming.connectionPassword !== 'undefined') {
+      if (incoming.connectionPassword) toSave.connectionPasswordEnc = encryptString(incoming.connectionPassword);
+    }
+    if (typeof incoming.githubToken !== 'undefined') {
+      if (incoming.githubToken) (toSave as any).githubTokenEnc = encryptString(incoming.githubToken);
+    }
     const saved = await setUserSettings(userId, toSave);
-    return NextResponse.json({ settings: { ...saved, connectionPasswordEnc: undefined } }, { headers });
+    const redacted = {
+      ...saved,
+      connectionPasswordEnc: undefined,
+      githubPasswordEnc: undefined,
+      githubTokenEnc: undefined,
+      giteaPasswordEnc: undefined,
+      giteaTokenEnc: undefined,
+      gitlabPasswordEnc: undefined,
+      gitlabTokenEnc: undefined,
+    } as any;
+    return NextResponse.json({ settings: redacted }, { headers });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Unexpected error' }, { status: 500, headers });
   }

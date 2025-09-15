@@ -49,13 +49,16 @@ function mediaTypeFor(file: string): 'image' | 'video' | 'model' | null {
 }
 
 function parseDescFile(text: string): { main?: string; entries: Record<string, string> } {
+  // Strip UTF-8 BOM if present
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const map: Record<string, string> = {};
   let current: string | null = null;
   for (const line of lines) {
-    const m = line.match(/^\s*([^:]+):\s*(.*)$/);
+    const clean = line.replace(/^\uFEFF/, '');
+    const m = clean.match(/^\s*([^:]+):\s*(.*)$/);
     if (m) {
-      current = m[1].trim().toLowerCase();
+      current = m[1].trim().toLowerCase().replace(/^\uFEFF/, '');
       map[current] = m[2] ?? '';
     } else if (current) {
       map[current] += (map[current] ? '\n' : '') + line;
@@ -89,9 +92,20 @@ export async function POST(req: NextRequest) {
       const descPath = path.join(base, 'desc.txt');
       const content = await fs.readFile(descPath, 'utf8');
       const parsed = parseDescFile(content);
+      if (process.env.PROMANAGE_DEBUG_REFRESH === '1') {
+        console.log('[refresh] base=', base);
+        console.log('[refresh] descPath=', descPath);
+        console.log('[refresh] raw desc content=', JSON.stringify(content));
+        console.log('[refresh] parsed.main=', parsed.main);
+        console.log('[refresh] parsed.entries.keys=', Object.keys(parsed.entries || {}));
+      }
       if (parsed.main) description = parsed.main;
       descEntries = parsed.entries || {};
-    } catch {}
+    } catch (e: any) {
+      if (process.env.PROMANAGE_DEBUG_REFRESH === '1') {
+        console.log('[refresh] failed reading desc.txt at', base, e?.message);
+      }
+    }
 
     const media: ProjectRecord['media'] = [];
     // Scan structured subfolders only
@@ -119,6 +133,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+  if (process.env.PROMANAGE_DEBUG_REFRESH === '1') {
+    console.log('[refresh] media counts:', {
+      images: media.filter(m => m.type === 'image').length,
+      videos: media.filter(m => m.type === 'video').length,
+      models: media.filter(m => m.type === 'model').length,
+    });
+  }
   const updated: ProjectRecord = { ...proj, description, media };
     store.projects[idx] = updated;
     await writeStore(store);

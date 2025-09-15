@@ -52,12 +52,16 @@ export default function ProjectPortal() {
   const [importConnectionType, setImportConnectionType] = useState<'nas' | 'git'>('nas');
   const [importPath, setImportPath] = useState('');
   const [importOrg, setImportOrg] = useState('');
+  const [gitProvider, setGitProvider] = useState<'github' | 'gitlab' | 'gitea'>('github');
+  const [gitBaseUrl, setGitBaseUrl] = useState('');
   // Track which project cards are expanded
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // Add authentication state for import dialog
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  // Git personal access token for import/connect flows (avoid name clash with JWT authToken)
+  const [gitToken, setGitTokenInput] = useState('');
   const [authSshKey, setAuthSshKey] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -67,6 +71,7 @@ export default function ProjectPortal() {
   const [settingsUser, setSettingsUser] = useState('');
   const [settingsPassword, setSettingsPassword] = useState('');
   const [settingsInfo, setSettingsInfo] = useState<string | null>(null);
+  const [settingsGitToken, setSettingsGitToken] = useState('');
 
   // Add local state for modal fields
   const [modalName, setModalName] = useState('');
@@ -106,6 +111,10 @@ export default function ProjectPortal() {
         if (!me.ok) throw new Error('Auth expired');
         const meJson = await me.json();
         setCurrentUser(meJson.user);
+        // Try to reconnect GitHub if user has saved credentials
+        try {
+          await fetch(`${API_BASE}/api/github-connect`, { headers: { Authorization: `Bearer ${authToken}` } });
+        } catch {}
         setLoadingProjects(true);
         const res = await fetch(`${API_BASE}/api/projects`, { headers: { Authorization: `Bearer ${authToken}` } });
         const data = await res.json();
@@ -128,6 +137,10 @@ export default function ProjectPortal() {
         if (sres.ok && sjson.settings) {
           if (sjson.settings.defaultConnectionType) setSettingsDefaultConn(sjson.settings.defaultConnectionType);
           if (sjson.settings.connectionUsername) setSettingsUser(sjson.settings.connectionUsername);
+          const st = sjson.settings || {};
+          if (st.githubConnected) setGitProvider('github');
+          if (st.giteaConnected) { setGitProvider('gitea'); if (st.giteaBaseUrl) setGitBaseUrl(st.giteaBaseUrl); }
+          if (st.gitlabConnected) { setGitProvider('gitlab'); if (st.gitlabBaseUrl) setGitBaseUrl(st.gitlabBaseUrl); }
         }
       } catch (e) {
         // token invalid; clear
@@ -188,6 +201,25 @@ export default function ProjectPortal() {
           const data = await resp.json();
           const saved = data.project as Project;
           setProjects((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
+
+          // If this is a Git connection, ask backend to fetch README and update description
+    if ((updatedProject.connectionType || saved.connectionType) === 'git' && connectionPath) {
+            try {
+              if (currentUser) {
+                const username = settingsUser;
+                const password = settingsPassword;
+                const gResp = await fetch(`${API_BASE}/api/github-import`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: gitProvider, baseUrl: gitBaseUrl || undefined, repoUrl: connectionPath, username, password, token: settingsGitToken || undefined, projectId: saved.id, userId: currentUser.id }),
+                });
+                const gJson = await gResp.json();
+                if (gResp.ok && gJson.description) {
+                  setProjects((prev) => prev.map((p) => (p.id === saved.id ? { ...p, description: (gJson.description as string).trim() } : p)));
+                }
+              }
+            } catch {}
+          }
 
           // 1) Upload any files picked on web via multipart/form-data
           if (webPickedFilesRef.current && webPickedFilesRef.current.files.length > 0) {
@@ -281,6 +313,19 @@ export default function ProjectPortal() {
             const data = await resp.json();
             const saved = data.project as Project;
             setProjects((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
+            // Immediately refresh to scan media folders and desc.txt
+            try {
+              const r = await fetch(`${API_BASE}/api/projects/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                body: JSON.stringify({ id: saved.id })
+              });
+              const rj = await r.json();
+              if (r.ok && rj.project) {
+                const updated = rj.project as Project;
+                setProjects((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+              }
+            } catch {}
           }
         } catch {}
       }
@@ -308,6 +353,19 @@ export default function ProjectPortal() {
               const data = await resp.json();
               const saved = data.project as Project;
               setProjects((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
+              // Refresh each saved project to load media
+              try {
+                const r = await fetch(`${API_BASE}/api/projects/refresh`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                  body: JSON.stringify({ id: saved.id })
+                });
+                const rj = await r.json();
+                if (r.ok && rj.project) {
+                  const updated = rj.project as Project;
+                  setProjects((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+                }
+              } catch {}
             }
           } catch {}
         }
@@ -341,14 +399,67 @@ export default function ProjectPortal() {
         if (!res.ok) throw new Error(data.error || 'NAS authentication failed');
         handleImport(data.description);
       } else {
-        const res = await fetch(`${API_BASE}/api/git-auth`, {
+        // Git import flow (GitHub/GitLab/Gitea): verify credentials; do not create projects if auth fails
+        if (!authToken || !currentUser) throw new Error('Login required');
+        // Verify Git provider credentials via connect endpoint (lightweight user check)
+        const check = await fetch(`${API_BASE}/api/github-connect`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repoUrl: importPath, username: username || undefined, password: password || undefined, sshKey: authSshKey || undefined }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ provider: gitProvider, baseUrl: gitBaseUrl || undefined, username, password, token: gitToken || settingsGitToken || undefined })
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Git authentication failed');
-        handleImport();
+        if (!check.ok) {
+          const cj = await check.json().catch(() => ({}));
+          throw new Error(cj.error || 'GitHub authentication failed');
+        }
+        const repos = importType === 'batch'
+          ? importPath.split(/[.,\n]+/).map((p) => p.trim()).filter(Boolean)
+          : [importPath];
+        for (const repoUrl of repos) {
+          // 1) Create the project record
+          const newId = Date.now().toString() + (importType === 'batch' ? Math.floor(Math.random() * 1000) : '');
+          const payload = {
+            id: newId,
+            name: repoUrl.split(/[\\/]/).pop() || 'Imported Project',
+            description: '',
+            storageLocation: repoUrl,
+            connectionType: 'git' as const,
+            connectionPath: repoUrl,
+            connectionProvider: gitProvider,
+            organization: importOrg || undefined,
+          };
+          setProjects((prev) => [...prev, payload]);
+          const cResp = await fetch(`${API_BASE}/api/projects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify(payload),
+          });
+          const cJson = await cResp.json();
+          if (!cResp.ok) throw new Error(cJson.error || 'Failed to create project');
+          const saved: Project = cJson.project;
+          setProjects((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
+
+          // 2) Ask backend to fetch README and update description
+          const gResp = await fetch(`${API_BASE}/api/github-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: gitProvider, baseUrl: gitBaseUrl || undefined, repoUrl, username, password, token: gitToken || settingsGitToken || undefined, projectId: saved.id, userId: currentUser.id }),
+          });
+          const gJson = await gResp.json();
+          if (!gResp.ok) {
+            // Roll back project creation on failure to authenticate/fetch README
+            setProjects((prev) => prev.filter((p) => p.id !== saved.id));
+            throw new Error(gJson.error || 'GitHub import failed');
+          }
+          if (gJson.description) {
+            const desc = (gJson.description as string).trim();
+            setProjects((prev) => prev.map((p) => (p.id === saved.id ? { ...p, description: desc } : p)));
+          }
+        }
+        // Done
+        setImportDialogVisible(false);
+        setImportPath('');
+        setImportOrg('');
+        return;
       }
     } catch (err: any) {
       setAuthError(err.message);
@@ -521,12 +632,17 @@ export default function ProjectPortal() {
                   <IconButton icon="refresh" onPress={async () => {
                     if (!authToken) { Alert.alert('Login required'); return; }
                     try {
+                      // Frontend debug: log refresh request
+                      // eslint-disable-next-line no-console
+                      console.log('Refreshing project', item.id, 'at', `${API_BASE}/api/projects/refresh`);
                       const res = await fetch(`${API_BASE}/api/projects/refresh`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
                         body: JSON.stringify({ id: item.id })
                       });
                       const data = await res.json();
+                      // eslint-disable-next-line no-console
+                      console.log('Refresh response ok?', res.ok, data);
                       if (!res.ok) throw new Error(data.error || 'Refresh failed');
                       const updated = data.project as Project;
                       setProjects(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p));
@@ -670,6 +786,19 @@ export default function ProjectPortal() {
               <RadioButton.Item label="NAS Folder" value="nas" />
               <RadioButton.Item label="Git Repository" value="git" />
             </RadioButton.Group>
+            {(importConnectionType || settingsDefaultConn) === 'git' && (
+              <>
+                <List.Subheader>Git Provider</List.Subheader>
+                <RadioButton.Group onValueChange={(v) => setGitProvider(v as any)} value={gitProvider}>
+                  <RadioButton.Item label="GitHub" value="github" />
+                  <RadioButton.Item label="GitLab" value="gitlab" />
+                  <RadioButton.Item label="Gitea (self-hosted)" value="gitea" />
+                </RadioButton.Group>
+                {gitProvider !== 'github' && (
+                  <TextInput label="Base URL (e.g. https://gitlab.myco.com)" value={gitBaseUrl} onChangeText={setGitBaseUrl} style={{ marginBottom: 8 }} />
+                )}
+              </>
+            )}
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <TextInput
                 style={{ flex: 1 }}
@@ -703,6 +832,7 @@ export default function ProjectPortal() {
               <>
         <TextInput label="Git Username" value={authUsername || settingsUser} onChangeText={setAuthUsername} style={{ marginBottom: 8 }} />
         <TextInput label="Git Password" value={authPassword || settingsPassword} onChangeText={setAuthPassword} secureTextEntry style={{ marginBottom: 8 }} />
+  <TextInput label="Git Personal Access Token (optional)" value={gitToken || settingsGitToken} onChangeText={setGitTokenInput} secureTextEntry style={{ marginBottom: 8 }} />
                 <TextInput label="SSH Key (optional)" value={authSshKey} onChangeText={setAuthSshKey} style={{ marginBottom: 8 }} multiline />
               </>
             )}
@@ -769,6 +899,36 @@ export default function ProjectPortal() {
             </RadioButton.Group>
             <TextInput label="Connection Username" value={settingsUser} onChangeText={setSettingsUser} style={{ marginBottom: 8 }} />
             <TextInput label="Connection Password" value={settingsPassword} onChangeText={setSettingsPassword} secureTextEntry style={{ marginBottom: 8 }} />
+            <List.Subheader>Git Providers</List.Subheader>
+            <HelperText type="info">Connect your Git provider to enable README auto-imports.</HelperText>
+            <RadioButton.Group onValueChange={(v) => setGitProvider(v as any)} value={gitProvider}>
+              <RadioButton.Item label="GitHub" value="github" />
+              <RadioButton.Item label="GitLab" value="gitlab" />
+              <RadioButton.Item label="Gitea (self-hosted)" value="gitea" />
+            </RadioButton.Group>
+            {gitProvider !== 'github' && (
+              <TextInput label="Base URL" value={gitBaseUrl} onChangeText={setGitBaseUrl} style={{ marginBottom: 8 }} />
+            )}
+      <TextInput label="Git Token (optional, recommended for GitHub)" value={settingsGitToken} onChangeText={setSettingsGitToken} secureTextEntry style={{ marginBottom: 8 }} />
+            <Button
+              mode="outlined"
+              onPress={async () => {
+                if (!authToken) { setSettingsInfo('Login required.'); return; }
+                try {
+                  const res = await fetch(`${API_BASE}/api/github-connect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ provider: gitProvider, baseUrl: gitBaseUrl || undefined, username: settingsUser, password: settingsPassword, token: settingsGitToken || undefined })
+                  });
+                  const j = await res.json();
+                  if (!res.ok) throw new Error(j.error || 'Git provider connect failed');
+                  setSettingsInfo('Git provider connected.');
+                } catch (e: any) {
+                  setSettingsInfo(e.message);
+                }
+              }}
+              style={{ marginTop: 8 }}
+            >Connect Provider</Button>
             {settingsInfo && <HelperText type="info">{settingsInfo}</HelperText>}
           </Dialog.Content>
           <Dialog.Actions>
@@ -784,10 +944,21 @@ export default function ProjectPortal() {
                     defaultConnectionType: settingsDefaultConn,
                     connectionUsername: settingsUser,
                     connectionPassword: settingsPassword || undefined,
+                    githubToken: settingsGitToken || undefined,
                   })
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+                // Optionally check GitHub credentials by calling the endpoint with a harmless repo when default is git
+                if (settingsDefaultConn === 'git' && settingsUser && settingsPassword && importPath) {
+                  try {
+                    await fetch(`${API_BASE}/api/github-import`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ provider: gitProvider, baseUrl: gitBaseUrl || undefined, repoUrl: importPath, username: settingsUser, password: settingsPassword, token: settingsGitToken || undefined, projectId: 'noop', userId: currentUser?.id || 'noop' })
+                    });
+                  } catch {}
+                }
                 setSettingsInfo('Saved.');
               } catch (e: any) {
                 setSettingsInfo(e.message);
