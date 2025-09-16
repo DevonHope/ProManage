@@ -2,6 +2,8 @@
 
 A cross‑platform project manager for creative folders on NAS or Git. Runs as a web/desktop app (Expo + Tauri) with a Next.js backend.
 
+[promanage.to](https://promanage.to)
+
 ## Status
 
 Stable for day‑to‑day development and testing on Windows:
